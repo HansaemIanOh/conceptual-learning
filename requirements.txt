@@ -1,0 +1,17 @@
+--find-links https://download.pytorch.org/whl/cu118/torch_stable.html
+torch==2.3.1 # 2024-06-06
+torchvision==0.18.1 # 2024-06-06
+torchaudio==2.3.1 # 2024-06-06
+pytorch-lightning==2.3.0 # 2024-06-14
+torchinfo==1.8.0 # 2024-05-15
+tensorboard==2.17.0 # 2024-06-08
+numpy==1.26.4 # 2024-02-06
+matplotlib==3.9.0 # 2024-05-16
+seaborn==0.13.2 # 2024-01-25
+scikit-learn==1.5.0 # 2024-05-22
+pandas==2.2.2 # 2024-04-11
+ipykernel==6.29.5 # 2024-07-01
+safetensors==0.4.3 # 2024-04-16
+transformers==4.41.2 # 2024-05-31
+datasets==2.20.0 # 2024-06-13
+flask

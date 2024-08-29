@@ -1,0 +1,5 @@
+data
+*pycache*
+logs
+log.py
+script.ipynb
