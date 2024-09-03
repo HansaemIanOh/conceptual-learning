@@ -13,30 +13,35 @@ from safetensors.torch import save_file, load_file
 class TBlock(nn.Module):
     def __init__(
         self,
-        h_dim,
-        num_heads,
-        dropout=0.,
-        attn_dropout=0,
+        attn_dim: int,
+        mlp_dim: int,
+        num_heads: int,
+        dropout: float=0.,
+        attn_dropout: float=0,
+        act: nn.Module=nn.GELU(),
         **kwargs
     ) -> None:
         super().__init__()
-        self.q_proj = nn.Linear(h_dim, h_dim)
-        self.k_proj = nn.Linear(h_dim, h_dim)
-        self.v_proj = nn.Linear(h_dim, h_dim)
+        self.act = act
+        self.q_proj = nn.Linear(attn_dim, attn_dim)
+        self.k_proj = nn.Linear(attn_dim, attn_dim)
+        self.v_proj = nn.Linear(attn_dim, attn_dim)
         # LN -> MHA -> RES -> LN -> MLP -> RES
-        self.LN1 = nn.LayerNorm(h_dim)
-        self.MHA = nn.MultiheadAttention(h_dim, num_heads, dropout=attn_dropout, bias=False)
-        self.LN2 = nn.LayerNorm(h_dim)
+        self.LN1 = nn.LayerNorm(attn_dim)
+        self.MHA = nn.MultiheadAttention(attn_dim, num_heads, dropout=attn_dropout, bias=False, batch_first=True)
+        self.LN2 = nn.LayerNorm(attn_dim)
         self.MLP = nn.Sequential(
-            nn.Linear(h_dim, h_dim),
-            nn.GELU(),
+            nn.Linear(attn_dim, mlp_dim),
+            self.act,
             nn.Dropout(dropout),
-            nn.Linear(h_dim, h_dim),
+            nn.Linear(mlp_dim, attn_dim),
             nn.Dropout(dropout)
         )
-    def forward(self, x: Tensor, attn_mask: Tensor) -> Tensor:
+    def forward(self, x: Tensor, pad_attn_mask: Tensor, cas_attn_mask: Tensor) -> Tensor:
         '''
         x : [B, S, F]
+        pad_attn_mask : [B, S]
+        cas_attn_mask : [S, S]
         '''
         h = x
         h = self.LN1(h) # LN
@@ -44,19 +49,15 @@ class TBlock(nn.Module):
         q = self.q_proj(h)
         k = self.k_proj(h)
         v = self.v_proj(h)
-        # MHA expects input of shape [S, B, F]
-        q, k, v = q.transpose(0, 1), k.transpose(0, 1), v.transpose(0, 1)
-
-        h, _ = self.MHA(q, k, v, attn_mask=attn_mask) # MHA
-        h = h.transpose(0, 1) # Change back to [B, S, F]
-        h = h + x # RES
+        h_attn, _ = self.MHA(q, k, v, key_padding_mask=pad_attn_mask, attn_mask=cas_attn_mask) # MHA
+        h = h_attn + h # RES
         h = self.LN2(h) # LN
         h = self.MLP(h) # MLP
         h = h + x # RES
 
         return h
 
-class SimpleTransformer(pl.LightningModule):
+class CLCM(pl.LightningModule):
     def __init__(
         self, 
         config, 
@@ -71,18 +72,18 @@ class SimpleTransformer(pl.LightningModule):
         dropout : Dropout rate for the MLP in the transformer block
         attn_dropout : Attention dropout rate in the transformer block
         '''
-        self.h_dim = config['h_dim']
+        self.attn_dim = config['attn_dim']
+        self.mlp_dim = config['mlp_dim']
         self.num_heads = config['num_heads']
         self.dropout = config['dropout']
         self.attn_dropout = config['attn_dropout']
         self.num_layers = config['num_layers']
         
-        self.vocab_size = config['vocab_size']
+        self.tokenizer = config['tokenizer']
         self.vocab_dim = config['vocab_dim']
         self.max_length = config['max_length']
-        self.pad_token_id = config['pad_token_id']
         
-        self.token_embed = nn.Embedding(self.vocab_size, self.vocab_dim)
+        self.token_embed = nn.Embedding(self.tokenizer.vocab_size, self.vocab_dim)
         self.positional_embed = nn.Embedding(self.max_length, self.vocab_dim)
         # Transformer blocks
         
@@ -90,45 +91,47 @@ class SimpleTransformer(pl.LightningModule):
         for index in range(self.num_layers):
             self.TBlocks.append(
                 TBlock(
-                    h_dim = self.h_dim, 
+                    attn_dim = self.attn_dim,
+                    mlp_dim = self.mlp_dim, 
                     num_heads = self.num_heads,
                     dropout = self.dropout,
                     attn_dropout = self.attn_dropout
                 )
             )
         
-        # self.final = nn.Linear(self.h_dim, self.vocab_size)
-
-        self.train_accuracy = Accuracy(task="multiclass", num_classes=self.vocab_size)
-        self.val_accuracy = Accuracy(task="multiclass", num_classes=self.vocab_size)
+        self.train_accuracy = Accuracy(task="multiclass", num_classes=self.tokenizer.vocab_size)
+        self.val_accuracy = Accuracy(task="multiclass", num_classes=self.tokenizer.vocab_size)
 
         self.train_losses = []
         self.val_losses = []
-    def forward(self, x: Tensor, attn_mask: Tensor=None) -> Tensor:
+    def forward(self, x: Tensor, pad_attn_mask: Tensor, cas_attn_mask: Tensor=None) -> Tensor:
         '''
         x : [B, S]
+        pad_attn_mask : [B, S]
+        cas_attn_mask : [S, S]
         h : [B, S, F]
         output : [B, S, F] next token precision
         '''
         h = x
         position_ids = self.create_positional_indices(x)
         h = self.token_embed(h) + self.positional_embed(position_ids)
+
+        if cas_attn_mask==None:
+            cas_attn_mask = nn.Transformer.generate_square_subsequent_mask(h.size(1), device=x.device)
+        pad_attn_mask = (1 - pad_attn_mask)
+        pad_attn_mask = pad_attn_mask.float().masked_fill(pad_attn_mask == 1, float('-inf'))
         
-        if attn_mask==None:
-            attn_mask = nn.Transformer.generate_square_subsequent_mask(h.size(1), device=x.device)
         for module in self.TBlocks:
-            h = module(h, attn_mask)
-        # h = self.final(h)
+            h = module(h, pad_attn_mask, cas_attn_mask)
+
         h = torch.einsum('BSF,FV->BSV', h, self.token_embed.weight.t())
         return h
 
     def create_positional_indices(self, x):
         batch_size, seq_length = x.size()
         
-        # 시퀀스 길이만큼의 인덱스 생성
         position_ids = torch.arange(seq_length, dtype=torch.long, device=x.device)
         
-        # 배치 차원으로 확장
         position_ids = position_ids.unsqueeze(0).expand(batch_size, -1)
         
         return position_ids
@@ -138,15 +141,14 @@ class SimpleTransformer(pl.LightningModule):
         batch : labels, input_ids, token_type_ids, attention_mask
         input_ids : [B, S]
         '''
-        inputs = batch['input_ids']
-        targets = inputs.clone()
+        targets = batch['input_ids'].clone()
         targets = targets[:, 1:]
-        targets = torch.cat([targets, self.config['pad_token_id'] * torch.ones_like(targets[:, :1])], dim=1)
-        logits = self(inputs) # [B, S, vocab size]
+        targets = torch.cat([targets, self.tokenizer.pad_token_id * torch.ones_like(targets[:, :1])], dim=1)
+        logits = self(batch['input_ids'], batch['attention_mask']) # [B, S, vocab size]
 
-        loss = F.cross_entropy(logits.view(-1, self.vocab_size), targets.view(-1), ignore_index=self.config['pad_token_id'])
+        loss = F.cross_entropy(logits.view(-1, self.tokenizer.vocab_size), targets.view(-1), ignore_index=self.tokenizer.pad_token_id)
         preds = torch.argmax(logits, dim=2) # [B, S]
-        mask = targets != self.config['pad_token_id']
+        mask = targets != self.tokenizer.pad_token_id
         acc = (preds[mask] == targets[mask]).float().mean()
 
         self.log('TL', loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
@@ -156,9 +158,8 @@ class SimpleTransformer(pl.LightningModule):
         return loss
 
     def on_train_epoch_end(self):
-        # 에포크 종료 시 평균 손실 계산 및 저장
         avg_loss = np.mean(self.train_losses)
-        self.train_losses = []  # 리스트 초기화
+        self.train_losses = []
         self.save_loss('train', avg_loss)
 
     def validation_step(self, batch, batch_idx):
@@ -166,14 +167,14 @@ class SimpleTransformer(pl.LightningModule):
         batch : labels, input_ids, token_type_ids, attention_mask
         input_ids : [B, S]
         '''
-        inputs = batch['input_ids']
-        targets = inputs.clone()
+        targets = batch['input_ids'].clone()
         targets = targets[:, 1:]
-        targets = torch.cat([targets, self.config['pad_token_id'] * torch.ones_like(targets[:, :1])], dim=1)
-        logits = self(inputs) # [B, S, vocab size]
-        loss = F.cross_entropy(logits.view(-1, self.vocab_size), targets.view(-1), ignore_index=self.config['pad_token_id'])
+        targets = torch.cat([targets, self.tokenizer.pad_token_id * torch.ones_like(targets[:, :1])], dim=1)
+        logits = self(batch['input_ids'], batch['attention_mask']) # [B, S, vocab size]
+
+        loss = F.cross_entropy(logits.view(-1, self.tokenizer.vocab_size), targets.view(-1), ignore_index=self.tokenizer.pad_token_id)
         preds = torch.argmax(logits, dim=2) # [B, S, vocab size] -> [B, S]
-        mask = targets != self.config['pad_token_id']
+        mask = targets != self.tokenizer.pad_token_id
         acc = (preds[mask] == targets[mask]).float().mean()
 
         self.log('VL', loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
@@ -191,15 +192,14 @@ class SimpleTransformer(pl.LightningModule):
         batch : labels, input_ids, token_type_ids, attention_mask
         input_ids : [B, S]
         '''
-        inputs = batch['input_ids']
-        targets = inputs.clone()
+        targets = batch['input_ids'].clone()
         targets = targets[:, 1:]
-        targets = torch.cat([targets, self.config['pad_token_id'] * torch.ones_like(targets[:, :1])], dim=1)
-        logits = self(inputs) # [B, S, vocab size]
+        targets = torch.cat([targets, self.tokenizer.pad_token_id * torch.ones_like(targets[:, :1])], dim=1)
+        logits = self(batch['input_ids'], batch['attention_mask']) # [B, S, vocab size]
 
-        loss = F.cross_entropy(logits.view(-1, self.vocab_size), targets.view(-1), ignore_index=self.config['pad_token_id'])
+        loss = F.cross_entropy(logits.view(-1, self.tokenizer.vocab_size), targets.view(-1), ignore_index=self.tokenizer.pad_token_id)
         preds = torch.argmax(logits, dim=2) # [B, S]
-        mask = targets != self.config['pad_token_id']
+        mask = targets != self.tokenizer.pad_token_id
         acc = (preds[mask] == targets[mask]).float().mean()
 
         self.log('TeL', loss, on_step=False, on_epoch=True, sync_dist=True)
@@ -216,15 +216,7 @@ class SimpleTransformer(pl.LightningModule):
         try:
             if self.config['scheduler_gamma'] is not None:
                 scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer = optimizer, gamma = self.config['scheduler_gamma'])
-                return {
-                    "optimizer" : optimizer,
-                    "lr_scheduler": {
-                        "scheduler":scheduler,
-                        "interval": "epoch",
-                        "frequency": 1
-                    }
-                }
-                # return [optimizer], [scheduler]
+                return [optimizer], [scheduler]
         except:
             return optimizer
 

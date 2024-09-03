@@ -29,20 +29,16 @@ with open(args.filename, 'r') as file:
     except yaml.YAMLError as exc:
         print(exc)
 
-# data_module = ImageFolderDataModule(**config['data_config'])
+data_module = TextDataModule(config['data_config'])
 
-data_module = TextDataModule(**config['data_config'])
-
+data_module.prepare_data()
 data_module.setup()
-print("Dataset size:",data_module.total_size)
 
-vocab_size = len(data_module.tokenizer.vocab)
-pad_token_id = data_module.tokenizer.pad_token_id
+tokenizer = data_module.tokenizer
+# print("Dataset size:",data_module.total_size)
 
-config['model_config']['vocab_size'] = vocab_size
-config['model_config']['pad_token_id'] = pad_token_id
+config['model_config']['tokenizer'] = tokenizer
 config['model_config']['max_length'] = config['data_config']['max_length']
-
 
 # TensorBoard logger
 logger = TensorBoardLogger(save_dir=config['log_config']['save_dir'], name=config['log_config']['name'])

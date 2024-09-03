@@ -42,17 +42,11 @@ def load_model_and_tokenizer():
     tb_logger = TensorBoardLogger(save_dir=config['log_config']['save_dir'], name=config['log_config']['name'])
 
     data_module = TextDataModule(**config['data_config'])
-    data_module.setup()
     tokenizer = data_module.tokenizer
-    logger.info(f"Dataset size: {data_module.total_size}")
 
-    vocab_size = len(tokenizer.vocab)
-    pad_token_id = tokenizer.pad_token_id
-
-    config['model_config']['vocab_size'] = vocab_size
-    config['model_config']['pad_token_id'] = pad_token_id
+    config['model_config']['tokenizer'] = tokenizer
     config['model_config']['max_length'] = config['data_config']['max_length']
-
+    
     # 모델 로드
     logger.info("Loading model...")
     model = SimpleTransformer(config['model_config'])
@@ -101,7 +95,8 @@ def generate_text(input_text, max_length=100, temperature=0.7):
     for _ in range(max_length):
         with torch.no_grad():
             inputs = torch.tensor([generated_ids]).to(model.device)
-            outputs = model(inputs)
+            pad_attn_mask = torch.ones_like(inputs).to(model.device)
+            outputs = model(inputs, pad_attn_mask)
             next_token_logits = outputs[:, -1, :] / temperature
             next_token = torch.multinomial(torch.softmax(next_token_logits, dim=-1), num_samples=1).squeeze()
             generated_ids.append(next_token.item())

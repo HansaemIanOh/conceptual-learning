@@ -1,27 +1,30 @@
 model_config:
-  name: 'simpletransformer'
+  name: 'clcac'
   learning_rate: 0.0001
   manual_seed: 42
-  h_dim: 1024
+  attn_dim: 1024
+  mlp_dim: 2048
   vocab_dim: 1024
   num_heads: 16
   dropout: 0.0
   attn_dropout: 0.0
-  num_layers: 12
+  num_layers: 1
   weight_decay: 0.01
   # scheduler_gamma: 0.95
 
 # data_config:
 #   dataset_name: "imdb"  # 또는 다른 Hugging Face 데이터셋 이름
-#   tokenizer_name: "bert-base-uncased"  # 또는 다른 사전 훈련된 모델의 토크나이저
+#   tokenizer_name: "facebook/bart-base"  # 또는 다른 사전 훈련된 모델의 토크나이저
 #   max_length: 128
 #   batch_size: 32
 #   num_workers: 4
 #   train_val_test_split: [0.8, 0.1, 0.1]
+#   save_cache: "Map_cache/imdb"
+#   load_cache: "Map_cache/imdb"
 
 # data_config:
 #   dataset_name: "rotten_tomatoes"  # 또는 다른 작은 데이터셋
-#   tokenizer_name: "bert-base-uncased"
+#   tokenizer_name: "facebook/bart-base"
 #   max_length: 128
 #   batch_size: 16
 #   num_workers: 4
@@ -29,12 +32,15 @@ model_config:
 #   max_samples: 1000  # 전체 데이터셋에서 사용할 최대 샘플 수
 
 data_config:
-  dataset_name: "openwebtext"  # 또는 다른 Hugging Face 데이터셋 이름
-  tokenizer_name: "facebook/bart-base"  # 또는 다른 사전 훈련된 모델의 토크나이저
+  dataset_name: "openwebtext"
+  tokenizer_name: "facebook/bart-base"
   max_length: 1024
-  batch_size: 1024
+  batch_size: 32
   num_workers: 4
   train_val_test_split: [0.8, 0.1, 0.1]
+  streaming: True
+  # save_cache: "Map_cache/openwebtext"
+  # load_cache: "Map_cache/openwebtext"
 
 trainer_config:
   accelerator: 'gpu'
@@ -43,9 +49,9 @@ trainer_config:
   precision: 16-mixed
 
 log_config:
-  name: "simpletransformer"
+  name: "clcac"
   save_dir: "logs/"
   check_dir: "logs/check"
-  checkpoint: True
+  checkpoint: False
   model_summary: False
   
