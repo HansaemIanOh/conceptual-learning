@@ -81,25 +81,6 @@ model_config:
       num_layers: 6
       dropout: 0.1
       attn_dropout: 0.1
-  # scheduler_gamma: 0.95
-
-# data_config:
-#   dataset_name: "imdb"  # 또는 다른 Hugging Face 데이터셋 이름
-#   tokenizer_name: "facebook/bart-base"  # 또는 다른 사전 훈련된 모델의 토크나이저
-#   max_length: 128
-#   batch_size: 32
-#   num_workers: 4
-#   train_val_test_split: [0.8, 0.1, 0.1]
-
-# data_config:
-#   dataset_name: "rotten_tomatoes"  # 또는 다른 작은 데이터셋
-#   tokenizer_name: "facebook/bart-base"
-#   max_length: 128
-#   batch_size: 16
-#   num_workers: 4
-#   train_val_test_split: [0.8, 0.1, 0.1]
-  # streaming: True
-#   max_samples: 1000  # 전체 데이터셋에서 사용할 최대 샘플 수
 
 data_config:
   dataset_name: "openwebtext"
@@ -109,14 +90,14 @@ data_config:
   num_workers: 4
   train_val_test_split: [0.8, 0.1, 0.1]
   streaming: True
-#   save_cache: "Map_cache/openwebtext"
-#   load_cache: "Map_cache/openwebtext"
 
 trainer_config:
   accelerator: 'gpu'
-  devices: 1  # 2 or [0, 1]
+  devices: [1]  # 2 or [0, 1]
   max_epochs: 10
   precision: 16-mixed
+  max_steps: 10000
+  val_check_interval: 1000
 
 log_config:
   name: "cllm"

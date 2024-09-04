@@ -89,10 +89,10 @@ class ConceptualLM(pl.LightningModule):
         self.streaming = config.get('streaming')
         self.concept_config = config.get('concept_config')
 
-        self.conceptual_dictionary = self.cd_func(self.concept_config) # [M, S_M]
-        self.token_embed = nn.Embedding(self.tokenizer.vocab_size + 1, self.vocab_dim) # GT Token
+        self.conceptual_dictionary, self.cd_padding_mask = self.cd_func(self.concept_config) # [M, T]
+        self.token_embed = nn.Embedding(self.tokenizer.vocab_size, self.vocab_dim)
         self.positional_embed = nn.Embedding(self.max_length, self.vocab_dim)
-
+        self.GT_embed = nn.Embedding(1, self.vocab_dim) # GT Token
         self.cac = self.cac_func(config.get('cac_config'))
         self.cm = self.cm_func(self.concept_config)
         GT_attn_dim = config.get('cac_config').get('attn_dim')
@@ -117,8 +117,9 @@ class ConceptualLM(pl.LightningModule):
         x : [B, S] -> UW_e + W_p
         CD : [c_1, ..., c_M]
         c_j -tokenizing> [0, ..., 2] 0 : SOS, 2 : EOS
-        pad_attn_mask : [B, S]
-        cas_attn_mask : [S, S]
+        pad_attn_mask : [B, S] -> [B, 1, S]
+        cas_attn_mask : [S, S] -> [1, S, S]
+        mask : [B, S, S]
         h : [B, S, F]
         output : [B, S, F] next token precision
         '''
@@ -130,16 +131,16 @@ class ConceptualLM(pl.LightningModule):
             cas_attn_mask = nn.Transformer.generate_square_subsequent_mask(h.size(1), device=x.device)
         pad_attn_mask = (1 - pad_attn_mask)
         pad_attn_mask = pad_attn_mask.float().masked_fill(pad_attn_mask == 1, float('-inf'))
-        
+
         h_concepts = self.cm_forward(
             h,
             self.cm,
             pad_attn_mask,
             cas_attn_mask
         )
-        GT = torch.tensor(self.tokenizer.vocab_size).to(x.device)
-        GT = self.token_embed(GT)
-        scr = self.SCR(h, GT) # [B, M]
+        GT = torch.tensor(0).to(x.device)
+        GT = self.GT_embed(GT)
+        scr = self.Multi_SCR(h, GT, pad_attn_mask) # [B, M]
         h = torch.einsum('BMSF,BM->BSF', h_concepts, scr)
         h = torch.einsum('BSF,FV->BSV', h, self.token_embed.weight.t())
         return h
@@ -164,8 +165,8 @@ class ConceptualLM(pl.LightningModule):
     def cm_func(
         self, 
         config: Dict
-    ) -> Dict[str, nn.ModuleList]:
-        models = {}
+    ) -> nn.ModuleList:
+        models = nn.ModuleList()
         for model_name, model_config in config.items():
             model_layers = nn.ModuleList()
             for _ in range(model_config.get('num_layers')):
@@ -178,7 +179,7 @@ class ConceptualLM(pl.LightningModule):
                         attn_dropout=model_config.get('attn_dropout')
                     )
                 )
-            models[model_name] = model_layers
+            models.append(model_layers)
         return models
 
     def cd_func(
@@ -186,7 +187,8 @@ class ConceptualLM(pl.LightningModule):
         concept_config: Dict
     ) -> Tensor:
         '''
-        conceptual_dictionary : [M, S_CD] in cpu device
+        conceptual_dictionary : [M, T] in cpu device
+        padding_mask : [M, T] in cpu device
         '''
         conceptual_dictionary = []
         for models in concept_config:
@@ -200,7 +202,10 @@ class ConceptualLM(pl.LightningModule):
             truncation=True))
             for token in conceptual_dictionary]
         padded = pad_sequence(tokenized, batch_first=True, padding_value=self.tokenizer.pad_token_id)
-        return padded
+
+        padding_mask = torch.zeros_like(padded, dtype=torch.float)
+        padding_mask[padded == self.tokenizer.pad_token_id] = float('-inf')
+        return padded, padding_mask
 
     def cac_forward(
         self,
@@ -214,15 +219,15 @@ class ConceptualLM(pl.LightningModule):
         return : [B, S, V]
         For pre-training cac
         '''
-        
         for module in modulelist:
             h = module(h, pad_attn_mask, cas_attn_mask)
+        h = torch.einsum('BSF,FV->BSV', h, self.token_embed.weight.t())
         return h
 
     def cm_forward(
         self,
         h: Tensor,
-        cm: Dict[str, nn.ModuleList],
+        cm: nn.ModuleList,
         pad_attn_mask: Tensor, 
         cas_attn_mask: Tensor
     ) -> Dict[str, Tensor]:
@@ -231,7 +236,7 @@ class ConceptualLM(pl.LightningModule):
         return : [B, M, S, F]
         '''
         h_concepts = []
-        for concept_name, modulelist in cm.items():
+        for modulelist in cm:
             h_concept = h
             for module in modulelist:
                 h_concept = module(h_concept, pad_attn_mask, cas_attn_mask)
@@ -239,51 +244,30 @@ class ConceptualLM(pl.LightningModule):
         h_concepts = torch.stack(h_concepts, dim=1)
         return h_concepts
 
-    def CR(
-        self,
-        query: Tensor,
-        keys: Tensor
-    ) -> Tensor:
-        '''
-        query : [B, F]
-        keys : [B, M, F]
-        return : [B, M]
-        '''
-        rho = F.softmax(torch.einsum('BF,BFM->BM', query, keys.transpose(1, 2)), dim=1)
-        return rho
-
-    def global_weight(
-        self,
-        query: Tensor,
-        keys: Tensor
-    ) -> Tensor:
-        '''
-        query : [B, F]
-        keys : [B, S, F]
-        return : [B, S]
-        '''
-        w = F.softmax(torch.einsum('BF,BFS->BS', query, keys.transpose(1, 2)), dim=1)
-        return w
-
-    def SCR(
+    def Multi_SCR(
         self,
         h: Tensor,
         GT: Tensor,
         pad_attn_mask: Tensor, 
-        cas_attn_mask: Tensor
     ) -> Tensor:
         '''
-        h : [B, S, F]
-        GT : [B, F]
-        queries : [B, S, F]
-        conceptual_dictionary : [M, S_M]
-        keys_cd : [B, M, S_M, F]
-        keys_seq : [B, S, F]
-        rho_seq : [B, S, M]
-        w : [B, S]
+        h : [B, S, F] # pad_seq
+        GT : [F]
+        pad_attn_mask : [B, S]
+        queries_seq : [B, S, F] # pad_seq
+        conceptual_dictionary : [M, T] # pad_cd
+        keys_cd : [M, T, F] # pad_cd
+        keys_seq : [B, S, F] # pad_seq
+        cd_padding_mask : [M, T]
+        w_cd : [M, T] # pad_cd
+        w_seq : [B, S] # pad_seq
+        mcr : [B, S, M, T] # pad_seq
+        rho_seq : [B, S, M] # pad_seq
         return : [B, M]
         '''
         conceptual_dictionary = self.conceptual_dictionary.to(h.device)
+        cd_embed = self.token_embed(conceptual_dictionary)
+        cd_padding_mask = self.cd_padding_mask.to(h.device)
         for module in self.cac:
             q_proj = module.q_proj
             k_proj = module.k_proj
@@ -291,13 +275,30 @@ class ConceptualLM(pl.LightningModule):
         
         queries_seq = q_proj(h)
         query_GT = self.GT_q_proj(GT)
-        keys_cd = k_proj(conceptual_dictionary)
+        keys_cd = k_proj(cd_embed)
         keys_seq = k_proj(h)
+        w_cd = F.softmax(self.apply_mask(
+            torch.einsum(
+                'F,MTF->MT',query_GT, keys_cd
+                ), attn_mask = cd_padding_mask), dim=1)
 
-        rho_seq = F.softmax(torch.einsum('BSF,BFM->BSM', queries_seq, keys_cd.transpose(1, 2)), dim=2)
-        w = self.global_weight(query_GT, keys_seq)
-        scr = torch.einsum('BSM,BS->BM', rho_seq, w)
+        mcr = torch.einsum('BSF,MTF->BSMT', queries_seq, keys_cd)
+
+        rho_seq = F.softmax(torch.einsum('BSMT,MT->BSM',mcr, w_cd), dim=2)
+
+        w_seq = F.softmax(self.apply_mask(
+            torch.einsum(
+                'F,BFS->BS', query_GT, keys_seq.transpose(1, 2)
+                ), attn_mask = pad_attn_mask), dim=1)
+        scr = torch.einsum('BSM,BS->BM', rho_seq, w_seq)
         return scr
+
+    def apply_mask(
+        self,
+        tensor: Tensor,
+        attn_mask: Tensor
+    ) -> Tensor:
+        return tensor + attn_mask
 
     def create_positional_indices(self, x):
         batch_size, seq_length = x.size()
@@ -393,7 +394,7 @@ class ConceptualLM(pl.LightningModule):
 
     def configure_optimizers(self) -> List[Optimizer]:
         '''
-        cac_optimizer, GT_optimizer, cm_optimizer
+        cac_optimizer, GT_optimizer, cm_optimizer, all_optimizer
         '''
         common_params = list(self.token_embed.parameters()) + list(self.positional_embed.parameters())
         
@@ -414,14 +415,22 @@ class ConceptualLM(pl.LightningModule):
         )
 
         # CM optimizer
-        cm_params = [p for model in self.cm.values() for p in model.parameters()] + common_params
+        cm_params = [p for model in self.cm for p in model.parameters()] + common_params
         cm_optimizer = torch.optim.Adam(
             cm_params,
             lr=self.config['cm_learning_rate'],
             weight_decay=self.config['cm_weight_decay']
         )
 
-        return [cac_optimizer, gt_optimizer, cm_optimizer]
+        # All optimizer
+        all_optimizer = torch.optim.Adam(
+            self.parameters(),
+            lr=self.config['cm_learning_rate'],
+            weight_decay=self.config['cm_weight_decay']
+        )
+        return all_optimizer
+        # return cac_optimizer
+        # return [cac_optimizer, gt_optimizer, cm_optimizer]
 
     def save_loss(self, phase, loss):
         save_path = os.path.join(self.logger.log_dir, f'{phase}_losses.npy')

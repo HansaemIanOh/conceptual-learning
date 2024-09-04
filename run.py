@@ -8,7 +8,6 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.utilities import rank_zero_only
 from pytorch_lightning import seed_everything
-# from dataloader import ImageFolderDataModule
 from textdataloader import TextDataModule
 from models import get_model
 from torchinfo import summary
@@ -31,14 +30,13 @@ with open(args.filename, 'r') as file:
 
 data_module = TextDataModule(config['data_config'])
 
-data_module.prepare_data()
 data_module.setup()
 
 tokenizer = data_module.tokenizer
-# print("Dataset size:",data_module.total_size)
 
 config['model_config']['tokenizer'] = tokenizer
 config['model_config']['max_length'] = config['data_config']['max_length']
+config['model_config']['streaming'] = config['data_config'].get('streaming')
 
 # TensorBoard logger
 logger = TensorBoardLogger(save_dir=config['log_config']['save_dir'], name=config['log_config']['name'])
@@ -79,6 +77,7 @@ trainer = pl.Trainer(
                safetensors_callback],
     log_every_n_steps=1,
     enable_progress_bar=True,
+    num_sanity_val_steps=0,
     **config['trainer_config']
 )
 
