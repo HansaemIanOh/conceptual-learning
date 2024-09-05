@@ -8,6 +8,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.utilities import rank_zero_only
 from pytorch_lightning import seed_everything
+from pytorch_lightning.strategies import DDPStrategy
 from textdataloader import TextDataModule
 from models import get_model
 from torchinfo import summary
@@ -78,6 +79,7 @@ trainer = pl.Trainer(
     log_every_n_steps=1,
     enable_progress_bar=True,
     num_sanity_val_steps=0,
+    strategy=DDPStrategy(find_unused_parameters=True),
     **config['trainer_config']
 )
 

@@ -138,6 +138,7 @@ class ConceptualLM(pl.LightningModule):
         if self.training_dict=='cac_pre':
             return self.cac_forward(
                 h,
+                self.cac,
                 pad_attn_mask,
                 cas_attn_mask
             )
@@ -347,7 +348,7 @@ class ConceptualLM(pl.LightningModule):
         logits : [B, M]
         targets : [B] (0, ..., M-1)
         '''
-        targets = batch['concept']
+        targets = batch['labels']
         logits = self(batch['input_ids'], batch['attention_mask']) # [B, M]
 
         loss = F.cross_entropy(logits, targets, ignore_index=self.tokenizer.pad_token_id)
@@ -376,6 +377,7 @@ class ConceptualLM(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         '''
         batch : labels, input_ids, token_type_ids, attention_mask
+        arxiv batch : labels, input_ids, attention_mask
         input_ids : [B, S]
         '''
 
@@ -412,8 +414,6 @@ class ConceptualLM(pl.LightningModule):
         batch : labels, input_ids, token_type_ids, attention_mask
         input_ids : [B, S]
         '''
-        print(batch)
-        exit()
         if self.training_dict=='cac_pre':
             loss, acc = self.loss_cac_pre(batch)
         if self.training_dict=='gt_scr':
