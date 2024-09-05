@@ -2,7 +2,7 @@ model_config:
   name: 'cllm'
   manual_seed: 42
   vocab_dim: 1024
-  training_mode: cac_scr
+  training_mode: gt_scr
 
   cac_learning_rate: 0.001
   cac_weight_decay: 0.001
@@ -133,7 +133,7 @@ data_config:
 
 trainer_config:
   accelerator: 'gpu'
-  devices: 1  # 2 or [0, 1]
+  devices: 2  # 2 or [0, 1]
   max_epochs: 10
   precision: 16-mixed
 

@@ -462,25 +462,26 @@ class ConceptualLM(pl.LightningModule):
         cac_optimizer, gt_optimizer, cm_optimizer, all_optimizer
         '''
         common_params = list(self.token_embed.parameters()) + list(self.positional_embed.parameters())
-        
+        gt_params = list(self.GT_q_proj.parameters())
+
+        # GT optimizer
+        gt_src_params = gt_params + common_params
+        gt_optimizer = torch.optim.Adam(
+            gt_src_params,
+            lr=self.config['gt_learning_rate'],
+            weight_decay=self.config['gt_weight_decay']
+        )
+
         # CAC optimizer
-        cac_params = list(self.cac.parameters()) + common_params
+        cac_params = list(self.cac.parameters()) + gt_params + common_params
         cac_optimizer = torch.optim.Adam(
             cac_params,
             lr=self.config['cac_learning_rate'],
             weight_decay=self.config['cac_weight_decay']
         )
 
-        # GT optimizer
-        gt_params = list(self.GT_q_proj.parameters()) + common_params
-        gt_optimizer = torch.optim.Adam(
-            gt_params,
-            lr=self.config['gt_learning_rate'],
-            weight_decay=self.config['gt_weight_decay']
-        )
-
         # CM optimizer
-        cm_params = [p for model in self.cm for p in model.parameters()] + common_params
+        cm_params = [p for model in self.cm for p in model.parameters()] + gt_params + common_params
         cm_optimizer = torch.optim.Adam(
             cm_params,
             lr=self.config['cm_learning_rate'],
