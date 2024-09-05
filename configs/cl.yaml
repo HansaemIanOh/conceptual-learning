@@ -122,6 +122,6 @@ log_config:
   name: "cllm"
   save_dir: "logs/"
   check_dir: "logs/check"
-  checkpoint: False
+  checkpoint: True
   model_summary: False
   

@@ -23,6 +23,7 @@ class TextDataModule(pl.LightningDataModule):
         self.save_cache = config.get('save_cache')
         self.load_cache = config.get('load_cache')
         self.streaming = config.get('streaming')
+        self.cac_pre = config.get('cac_pre')
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
 

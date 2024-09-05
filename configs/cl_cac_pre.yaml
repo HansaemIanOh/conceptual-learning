@@ -81,27 +81,41 @@ model_config:
       num_layers: 6
       dropout: 0.1
       attn_dropout: 0.1
+  # scheduler_gamma: 0.95
+
+# '0': math.AC
+# '1': cs.CV
+# '2': cs.AI
+# '3': cs.SY
+# '4': math.GR
+# '5': cs.CE
+# '6': cs.PL
+# '7': cs.IT
+# '8': cs.DS
+# '9': cs.NE
+# '10': math.ST
 
 data_config:
-  dataset_name: "openwebtext"
-  tokenizer_name: "bert-base-uncased"
-  max_length: 256
+  dataset_name: "ccdv/arxiv-classification"
+  tokenizer_name: "facebook/bart-base"
+  max_length: 1024
   batch_size: 64
-  num_workers: 21
+  num_workers: 4
   train_val_test_split: [0.8, 0.1, 0.1]
-  streaming: True
+  cac_pre: True
+  save_cache: "Map_cache/arxiv"
+  load_cache: "Map_cache/arxiv"
 
 trainer_config:
   accelerator: 'gpu'
-  devices: [1]  # 2 or [0, 1]
+  devices: 1  # 2 or [0, 1]
+  max_epochs: 10
   precision: 16-mixed
-  max_steps: 10000
-  val_check_interval: 1000
 
 log_config:
   name: "cllm"
   save_dir: "logs/"
   check_dir: "logs/check"
-  checkpoint: False
+  checkpoint: True
   model_summary: False
   

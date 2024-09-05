@@ -33,7 +33,7 @@ model_config:
 
 data_config:
   dataset_name: "openwebtext"
-  tokenizer_name: "facebook/bart-base"
+  tokenizer_name: "bert-base-uncased"
   max_length: 1024
   batch_size: 32
   num_workers: 4

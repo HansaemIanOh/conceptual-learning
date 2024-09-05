@@ -61,7 +61,7 @@ class TBlock(nn.Module):
 
 class ConceptualLM(pl.LightningModule):
     '''
-    cac(pre-training) -> gt(scr) -> cac(scr) -> cm(full-context)
+    cac_pre -> gt_scr -> cac_scr -> cm
     '''
     def __init__(
         self, 
@@ -71,6 +71,7 @@ class ConceptualLM(pl.LightningModule):
         super().__init__()
         self.config = config
         '''
+        training_mode : cac_pre, gt_scr, cac_scr, cm
         Transformer block : Tensor -> Tensor
         h_dim : Hidden dimension of the transformer block
         num_heads : Number of heads in the transformer block
@@ -88,7 +89,9 @@ class ConceptualLM(pl.LightningModule):
         self.max_length = config.get('max_length', 512)
         self.streaming = config.get('streaming')
         self.concept_config = config.get('concept_config')
-
+        # *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
+        self.training_dict = config.get('training_mode')
+        # *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
         self.conceptual_dictionary, self.cd_padding_mask = self.cd_func(self.concept_config) # [M, T]
         self.token_embed = nn.Embedding(self.tokenizer.vocab_size, self.vocab_dim)
         self.positional_embed = nn.Embedding(self.max_length, self.vocab_dim)
@@ -131,16 +134,27 @@ class ConceptualLM(pl.LightningModule):
             cas_attn_mask = nn.Transformer.generate_square_subsequent_mask(h.size(1), device=x.device)
         pad_attn_mask = (1 - pad_attn_mask)
         pad_attn_mask = pad_attn_mask.float().masked_fill(pad_attn_mask == 1, float('-inf'))
-
+        # *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
+        if self.training_dict=='cac_pre':
+            return self.cac_forward(
+                h,
+                pad_attn_mask,
+                cas_attn_mask
+            )
+        # *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
+        GT = torch.tensor(0).to(x.device)
+        GT = self.GT_embed(GT)
+        scr = self.Multi_SCR(h, GT, pad_attn_mask) # [B, M]
+        # *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
+        if self.training_dict in ['gt_scr', 'cac_scr']:
+            return scr
+        # *-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*-*
         h_concepts = self.cm_forward(
             h,
             self.cm,
             pad_attn_mask,
             cas_attn_mask
         )
-        GT = torch.tensor(0).to(x.device)
-        GT = self.GT_embed(GT)
-        scr = self.Multi_SCR(h, GT, pad_attn_mask) # [B, M]
         h = torch.einsum('BMSF,BM->BSF', h_concepts, scr)
         h = torch.einsum('BSF,FV->BSV', h, self.token_embed.weight.t())
         return h
@@ -309,7 +323,40 @@ class ConceptualLM(pl.LightningModule):
         
         return position_ids
 
-    def training_step(self, batch, batch_idx):
+    def loss_cac_pre(self, batch):
+        '''
+        batch : labels, input_ids, token_type_ids, attention_mask
+        input_ids : [B, S]
+        '''
+        targets = batch['input_ids'].clone()
+        targets = targets[:, 1:]
+        targets = torch.cat([targets, self.tokenizer.pad_token_id * torch.ones_like(targets[:, :1])], dim=1)
+        logits = self(batch['input_ids'], batch['attention_mask']) # [B, S, V]
+
+        loss = F.cross_entropy(logits.view(-1, self.tokenizer.vocab_size), targets.view(-1), ignore_index=self.tokenizer.pad_token_id)
+        preds = torch.argmax(logits, dim=2) # [B, S]
+        mask = targets != self.tokenizer.pad_token_id
+        acc = (preds[mask] == targets[mask]).float().mean()
+
+        return loss, acc
+
+    def loss_scr(self, batch):
+        '''
+        batch : labels, input_ids, token_type_ids, attention_mask, targets
+        input_ids : [B, S]
+        logits : [B, M]
+        targets : [B] (0, ..., M-1)
+        '''
+        targets = batch['concept']
+        logits = self(batch['input_ids'], batch['attention_mask']) # [B, M]
+
+        loss = F.cross_entropy(logits, targets, ignore_index=self.tokenizer.pad_token_id)
+        preds = torch.argmax(logits, dim=1) # [B]
+        mask = targets != self.tokenizer.pad_token_id
+        acc = (preds[mask] == targets[mask]).float().mean()
+        return loss, acc
+
+    def loss_cm(self, batch):
         '''
         batch : labels, input_ids, token_type_ids, attention_mask
         input_ids : [B, S]
@@ -323,6 +370,23 @@ class ConceptualLM(pl.LightningModule):
         preds = torch.argmax(logits, dim=2) # [B, S]
         mask = targets != self.tokenizer.pad_token_id
         acc = (preds[mask] == targets[mask]).float().mean()
+
+        return loss, acc
+
+    def training_step(self, batch, batch_idx):
+        '''
+        batch : labels, input_ids, token_type_ids, attention_mask
+        input_ids : [B, S]
+        '''
+
+        if self.training_dict=='cac_pre':
+            loss, acc = self.loss_cac_pre(batch)
+        if self.training_dict=='gt_scr':
+            loss, acc = self.loss_scr(batch)
+        if self.training_dict=='cac_scr':
+            loss, acc = self.loss_scr(batch)
+        if self.training_dict=='cm':
+            loss, acc = self.loss_cm(batch)
 
         self.log('TL', loss, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
         self.log('TA', acc, on_step=True, on_epoch=True, prog_bar=True, sync_dist=True)
@@ -348,14 +412,16 @@ class ConceptualLM(pl.LightningModule):
         batch : labels, input_ids, token_type_ids, attention_mask
         input_ids : [B, S]
         '''
-        targets = batch['input_ids'].clone()
-        targets = targets[:, 1:]
-        targets = torch.cat([targets, self.tokenizer.pad_token_id * torch.ones_like(targets[:, :1])], dim=1)
-        logits = self(batch['input_ids'], batch['attention_mask']) # [B, S, vocab size]
-        loss = F.cross_entropy(logits.view(-1, self.tokenizer.vocab_size), targets.view(-1), ignore_index=self.tokenizer.pad_token_id)
-        preds = torch.argmax(logits, dim=2) # [B, S, vocab size] -> [B, S]
-        mask = targets != self.tokenizer.pad_token_id
-        acc = (preds[mask] == targets[mask]).float().mean()
+        print(batch)
+        exit()
+        if self.training_dict=='cac_pre':
+            loss, acc = self.loss_cac_pre(batch)
+        if self.training_dict=='gt_scr':
+            loss, acc = self.loss_scr(batch)
+        if self.training_dict=='cac_scr':
+            loss, acc = self.loss_scr(batch)
+        if self.training_dict=='cm':
+            loss, acc = self.loss_cm(batch)
 
         self.log('VL', loss, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
         self.log('VA', acc, on_step=False, on_epoch=True, prog_bar=True, sync_dist=True)
@@ -379,22 +445,21 @@ class ConceptualLM(pl.LightningModule):
         batch : labels, input_ids, token_type_ids, attention_mask
         input_ids : [B, S]
         '''
-        targets = batch['input_ids'].clone()
-        targets = targets[:, 1:]
-        targets = torch.cat([targets, self.tokenizer.pad_token_id * torch.ones_like(targets[:, :1])], dim=1)
-        logits = self(batch['input_ids'], batch['attention_mask']) # [B, S, vocab size]
-
-        loss = F.cross_entropy(logits.view(-1, self.tokenizer.vocab_size), targets.view(-1), ignore_index=self.tokenizer.pad_token_id)
-        preds = torch.argmax(logits, dim=2) # [B, S]
-        mask = targets != self.tokenizer.pad_token_id
-        acc = (preds[mask] == targets[mask]).float().mean()
+        if self.training_dict=='cac_pre':
+            loss, acc = self.loss_cac_pre(batch)
+        if self.training_dict=='gt_scr':
+            loss, acc = self.loss_scr(batch)
+        if self.training_dict=='cac_scr':
+            loss, acc = self.loss_scr(batch)
+        if self.training_dict=='cm':
+            loss, acc = self.loss_cm(batch)
 
         self.log('TeL', loss, on_step=False, on_epoch=True, sync_dist=True)
         self.log('TeA', acc, on_step=False, on_epoch=True, sync_dist=True)
 
     def configure_optimizers(self) -> List[Optimizer]:
         '''
-        cac_optimizer, GT_optimizer, cm_optimizer, all_optimizer
+        cac_optimizer, gt_optimizer, cm_optimizer, all_optimizer
         '''
         common_params = list(self.token_embed.parameters()) + list(self.positional_embed.parameters())
         
@@ -423,14 +488,19 @@ class ConceptualLM(pl.LightningModule):
         )
 
         # All optimizer
-        all_optimizer = torch.optim.Adam(
-            self.parameters(),
-            lr=self.config['cm_learning_rate'],
-            weight_decay=self.config['cm_weight_decay']
-        )
-        return all_optimizer
-        # return cac_optimizer
-        # return [cac_optimizer, gt_optimizer, cm_optimizer]
+        # all_optimizer = torch.optim.Adam(
+        #     self.parameters(),
+        #     lr=self.config['cm_learning_rate'],
+        #     weight_decay=self.config['cm_weight_decay']
+        # )
+        optimizer_dict = {
+            'cac_pre': cac_optimizer,
+            'gt_scr': gt_optimizer,
+            'cac_scr': cac_optimizer,
+            'cm': cm_optimizer
+        }
+        optimizer = optimizer_dict.get(self.training_dict)
+        return optimizer
 
     def save_loss(self, phase, loss):
         save_path = os.path.join(self.logger.log_dir, f'{phase}_losses.npy')
