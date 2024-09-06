@@ -120,8 +120,8 @@ class ConceptualLM(pl.LightningModule):
         x : [B, S] -> UW_e + W_p
         CD : [c_1, ..., c_M]
         c_j -tokenizing> [0, ..., 2] 0 : SOS, 2 : EOS
-        pad_attn_mask : [B, S] -> [B, 1, S]
-        cas_attn_mask : [S, S] -> [1, S, S]
+        pad_attn_mask : [B, S]
+        cas_attn_mask : [S, S]
         mask : [B, S, S]
         h : [B, S, F]
         output : [B, S, F] next token precision
@@ -269,11 +269,12 @@ class ConceptualLM(pl.LightningModule):
         h : [B, S, F] # pad_seq
         GT : [F]
         pad_attn_mask : [B, S]
+        cd_padding_mask : [M, T]
+
         queries_seq : [B, S, F] # pad_seq
         conceptual_dictionary : [M, T] # pad_cd
         keys_cd : [M, T, F] # pad_cd
         keys_seq : [B, S, F] # pad_seq
-        cd_padding_mask : [M, T]
         w_cd : [M, T] # pad_cd
         w_seq : [B, S] # pad_seq
         mcr : [B, S, M, T] # pad_seq

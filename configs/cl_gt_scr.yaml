@@ -4,10 +4,10 @@ model_config:
   vocab_dim: 1024
   training_mode: gt_scr
 
-  cac_learning_rate: 0.001
+  cac_learning_rate: 0.0001
   cac_weight_decay: 0.001
-  gt_learning_rate: 0.001
-  gt_weight_decay: 0.001
+  gt_learning_rate: 0.01
+  gt_weight_decay: 0.01
   cm_learning_rate: 0.0001
   cm_weight_decay: 0.001
   cac_config:
@@ -124,7 +124,7 @@ data_config:
   dataset_name: "ccdv/arxiv-classification"
   tokenizer_name: "facebook/bart-base"
   max_length: 512
-  batch_size: 32
+  batch_size: 16
   num_workers: 4
   train_val_test_split: [0.8, 0.1, 0.1]
   cac_pre: True
@@ -133,7 +133,7 @@ data_config:
 
 trainer_config:
   accelerator: 'gpu'
-  devices: 2  # 2 or [0, 1]
+  devices: [1]  # 2 or [0, 1]
   max_epochs: 10
   precision: 16-mixed
 

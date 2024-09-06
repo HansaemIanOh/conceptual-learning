@@ -1,50 +1,144 @@
 model_config:
-  name: 'clcm'
-  learning_rate: 0.0001
+  name: 'cllm'
   manual_seed: 42
-  attn_dim: 1024
-  mlp_dim: 2048
   vocab_dim: 1024
-  num_heads: 16
-  dropout: 0.0
-  attn_dropout: 0.0
-  num_layers: 12
-  weight_decay: 0.01
+  training_mode: cm
+
+  cac_learning_rate: 0.0001
+  cac_weight_decay: 0.001
+  gt_learning_rate: 0.01
+  gt_weight_decay: 0.01
+  cm_learning_rate: 0.0001
+  cm_weight_decay: 0.001
+  cac_config:
+    num_layers: 1
+    attn_dim: 1024
+    mlp_dim: 2048
+    num_heads: 16
+    dropout: 0.0
+    attn_dropout: 0.0
+  concept_config:
+    concept1:
+      token: 'Mathematics - Commutative Algebra'
+      attn_dim: 1024
+      mlp_dim: 2048
+      num_heads: 8
+      num_layers: 6
+      dropout: 0.1
+      attn_dropout: 0.1
+    concept2: 
+      token: 'Computer Vision and Pattern Recognition'
+      attn_dim: 1024
+      mlp_dim: 2048
+      num_heads: 8
+      num_layers: 6
+      dropout: 0.1
+      attn_dropout: 0.1
+    concept3: 
+      token: 'Artificial Intelligence'
+      attn_dim: 1024
+      mlp_dim: 2048
+      num_heads: 8
+      num_layers: 6
+      dropout: 0.1
+      attn_dropout: 0.1
+    concept4: 
+      token: 'Systems and Control'
+      attn_dim: 1024
+      mlp_dim: 2048
+      num_heads: 8
+      num_layers: 6
+      dropout: 0.1
+      attn_dropout: 0.1
+    concept5: 
+      token: 'Group Theory'
+      attn_dim: 1024
+      mlp_dim: 2048
+      num_heads: 8
+      num_layers: 6
+      dropout: 0.1
+      attn_dropout: 0.1
+    concept6: 
+      token: 'Computational Engineering, Finance, and Science'
+      attn_dim: 1024
+      mlp_dim: 2048
+      num_heads: 8
+      num_layers: 6
+      dropout: 0.1
+      attn_dropout: 0.1
+    concept7: 
+      token: 'Programming Languages'
+      attn_dim: 1024
+      mlp_dim: 2048
+      num_heads: 8
+      num_layers: 6
+      dropout: 0.1
+      attn_dropout: 0.1
+    concept8: 
+      token: 'Information Theory'
+      attn_dim: 1024
+      mlp_dim: 2048
+      num_heads: 8
+      num_layers: 6
+      dropout: 0.1
+      attn_dropout: 0.1
+    concept9: 
+      token: 'Data Structures and Algorithms'
+      attn_dim: 1024
+      mlp_dim: 2048
+      num_heads: 8
+      num_layers: 6
+      dropout: 0.1
+      attn_dropout: 0.1
+    concept10: 
+      token: 'Neural and Evolutionary Computing'
+      attn_dim: 1024
+      mlp_dim: 2048
+      num_heads: 8
+      num_layers: 6
+      dropout: 0.1
+      attn_dropout: 0.1
+    concept11: 
+      token: 'Statistics Theory'
+      attn_dim: 1024
+      mlp_dim: 2048
+      num_heads: 8
+      num_layers: 6
+      dropout: 0.1
+      attn_dropout: 0.1
   # scheduler_gamma: 0.95
 
-# data_config:
-#   dataset_name: "imdb"  # 또는 다른 Hugging Face 데이터셋 이름
-#   tokenizer_name: "bert-base-uncased"  # 또는 다른 사전 훈련된 모델의 토크나이저
-#   max_length: 128
-#   batch_size: 32
-#   num_workers: 4
-#   train_val_test_split: [0.8, 0.1, 0.1]
+# '0': math.AC
+# '1': cs.CV
+# '2': cs.AI
+# '3': cs.SY
+# '4': math.GR
+# '5': cs.CE
+# '6': cs.PL
+# '7': cs.IT
+# '8': cs.DS
+# '9': cs.NE
+# '10': math.ST
 
 data_config:
-  dataset_name: "rotten_tomatoes"  # 또는 다른 작은 데이터셋
+  dataset_name: "ccdv/arxiv-classification"
   tokenizer_name: "facebook/bart-base"
-  max_length: 128
+  max_length: 512
   batch_size: 16
   num_workers: 4
   train_val_test_split: [0.8, 0.1, 0.1]
-  max_samples: 1000  # 전체 데이터셋에서 사용할 최대 샘플 수
-
-# data_config:
-#   dataset_name: "openwebtext"  # 또는 다른 Hugging Face 데이터셋 이름
-#   tokenizer_name: "bert-base-uncased"  # 또는 다른 사전 훈련된 모델의 토크나이저
-#   max_length: 1024
-#   batch_size: 1024
-#   num_workers: 4
-#   train_val_test_split: [0.8, 0.1, 0.1]
+  cac_pre: True
+  save_cache: "Map_cache/arxiv"
+  load_cache: "Map_cache/arxiv"
 
 trainer_config:
   accelerator: 'gpu'
-  devices: 1  # 2 or [0, 1]
+  devices: 2  # 2 or [0, 1]
   max_epochs: 10
   precision: 16-mixed
 
 log_config:
-  name: "clcm"
+  name: "cllm"
   save_dir: "logs/"
   check_dir: "logs/check"
   checkpoint: True
