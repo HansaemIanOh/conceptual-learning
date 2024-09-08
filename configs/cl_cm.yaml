@@ -5,11 +5,11 @@ model_config:
   training_mode: cm
 
   cac_learning_rate: 0.0001
-  cac_weight_decay: 0.001
-  gt_learning_rate: 0.01
-  gt_weight_decay: 0.01
-  cm_learning_rate: 0.0001
-  cm_weight_decay: 0.001
+  cac_weight_decay: 0.000001
+  gt_learning_rate: 0.0001
+  gt_weight_decay: 0.000001
+  cm_learning_rate: 0.000001
+  cm_weight_decay: 0.000001
   cac_config:
     num_layers: 1
     attn_dim: 1024

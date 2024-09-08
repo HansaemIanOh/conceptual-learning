@@ -2,6 +2,7 @@ data
 *pycache*
 logs
 log.py
+log.ipynb
 script.ipynb
 static
 Map_cache

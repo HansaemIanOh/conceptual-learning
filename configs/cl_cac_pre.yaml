@@ -5,11 +5,11 @@ model_config:
   training_mode: cac_pre
 
   cac_learning_rate: 0.0001
-  cac_weight_decay: 0.001
-  gt_learning_rate: 0.01
-  gt_weight_decay: 0.01
-  cm_learning_rate: 0.0001
-  cm_weight_decay: 0.001
+  cac_weight_decay: 0.000001
+  gt_learning_rate: 0.0001
+  gt_weight_decay: 0.000001
+  cm_learning_rate: 0.000001
+  cm_weight_decay: 0.000001
   cac_config:
     num_layers: 1
     attn_dim: 1024
@@ -134,7 +134,7 @@ data_config:
 trainer_config:
   accelerator: 'gpu'
   devices: [2]  # 2 or [0, 1]
-  max_epochs: 50
+  max_epochs: 1000
   precision: 16-mixed
 
 log_config:

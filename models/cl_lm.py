@@ -46,16 +46,18 @@ class TBlock(nn.Module):
         cas_attn_mask : [S, S]
         '''
         h = x
+        res = x
         h = self.LN1(h) # LN
         
         q = self.q_proj(h)
         k = self.k_proj(h)
         v = self.v_proj(h)
         h_attn, _ = self.MHA(q, k, v, key_padding_mask=pad_attn_mask, attn_mask=cas_attn_mask) # MHA
-        h = h_attn + h # RES
+        h = h_attn + res # RES
         h = self.LN2(h) # LN
+        res = h
         h = self.MLP(h) # MLP
-        h = h + x # RES
+        h = h + res # RES
 
         return h
 
