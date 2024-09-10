@@ -30,12 +30,18 @@ class TextDataModule(pl.LightningDataModule):
     def setup(self, stage: Optional[str] = None):
         if self.load_cache and os.path.exists(self.load_cache):
             rank_zero_info(f"Loading cached dataset from {self.load_cache}")
-            self.tokenized_dataset = datasets.load_from_disk(self.load_cache)
+            # for c4
+            if self.dataset_name =="allenai/c4":
+                self.tokenized_dataset = datasets.load_from_disk(self.load_cache, "en")
+            else:
+                self.tokenized_dataset = datasets.load_from_disk(self.load_cache)
             self.streaming = False
         else:
             rank_zero_info("Processing dataset...")
-            dataset = datasets.load_dataset(self.dataset_name, streaming=self.streaming)
-
+            if self.dataset_name =="allenai/c4":
+                dataset = datasets.load_dataset(self.dataset_name, "en", streaming=self.streaming)
+            else:
+                dataset = datasets.load_dataset(self.dataset_name, streaming=self.streaming)
             def tokenize_function(examples):
                 return self.tokenizer(examples["text"], padding="max_length", truncation=True, max_length=self.max_length)
     

@@ -5,11 +5,11 @@ model_config:
   training_mode: cm
 
   cac_learning_rate: 0.0001
-  cac_weight_decay: 0.000001
-  gt_learning_rate: 0.0001
-  gt_weight_decay: 0.000001
-  cm_learning_rate: 0.000001
-  cm_weight_decay: 0.000001
+  cac_weight_decay: 0.0001
+  gt_learning_rate: 0.001
+  gt_weight_decay: 0
+  cm_learning_rate: 0.0001
+  cm_weight_decay: 0.01
   cac_config:
     num_layers: 1
     attn_dim: 1024
@@ -121,19 +121,19 @@ model_config:
 # '10': math.ST
 
 data_config:
-  dataset_name: "ccdv/arxiv-classification"
+  dataset_name: "allenai/c4"
   tokenizer_name: "facebook/bart-base"
   max_length: 512
-  batch_size: 16
+  batch_size: 1
   num_workers: 4
   train_val_test_split: [0.8, 0.1, 0.1]
   cac_pre: True
-  save_cache: "Map_cache/arxiv"
-  load_cache: "Map_cache/arxiv"
+  save_cache: "Map_cache/c4"
+  load_cache: "Map_cache/c4"
 
 trainer_config:
   accelerator: 'gpu'
-  devices: 2  # 2 or [0, 1]
+  devices: 3  # 2 or [0, 1]
   max_epochs: 10
   precision: 16-mixed
 
